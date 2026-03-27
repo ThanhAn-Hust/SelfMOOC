@@ -41,18 +41,18 @@ export interface AuthUser {
 
 // Bộ luật cho Form Đăng ký (Chỉ cho phép Teacher và Parent)
 export const registerSchema = z.object({
-  name: z
-    .string({ message: 'Vui lòng nhập họ và tên' })
-    .min(2, 'Tên phải có ít nhất 2 ký tự'),
-  email: z
-    .string({ message: 'Vui lòng nhập email' })
-    .email('Định dạng email không hợp lệ'),
-  password_raw: z
-    .string({ message: 'Vui lòng nhập mật khẩu' })
-    .min(6, 'Mật khẩu phải có ít nhất 6 ký tự'),
-  role: z.enum(['teacher', 'parent'], { 
-    message: 'Chỉ Giảng viên và Phụ huynh mới được phép đăng ký' 
-  }),
+  name: z.string().min(1, 'Tên không được để trống'),
+  email: z.string().email('Email không hợp lệ'),
+  role: z.string(),
+  // 1. Vẫn có ô password
+  password_raw: z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự'),
+  // 2. Thêm ô confirm_password vào đây
+  confirm_password_raw: z.string().min(1, 'Vui lòng xác nhận mật khẩu'), 
+})
+// 3. THÊM ĐOẠN NÀY ĐỂ SO SÁNH 2 PASS 🎯
+.refine((data) => data.password_raw === data.confirm_password_raw, {
+  message: "❌ Mật khẩu xác nhận không khớp nha!",
+  path: ["confirm_password_raw"], // Báo lỗi thẳng vào trường confirm_password
 });
 
 export type RegisterPayload = z.infer<typeof registerSchema>;

@@ -1,5 +1,5 @@
 import { pgPool } from '@/lib/db';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { AuthUser, LoginPayload, RegisterPayload } from '../models/auth.model';
 
 export async function authenticateUser(payload: LoginPayload): Promise<AuthUser | null> {

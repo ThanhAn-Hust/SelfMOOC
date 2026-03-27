@@ -130,13 +130,15 @@ export default function AuthPage() {
           <input type="hidden" name="role" value={role} />
 
           <div className="space-y-5">
+            {/* Tên: Chỉ hiện khi Đăng ký */}
             {mode === 'register' && (
-              <div>
+              <div className="animate-fade-in-down">
                 <label className="block text-sm font-bold text-gray-700 mb-2">🏷️ Họ và tên</label>
                 <input name="name" type="text" className="w-full px-4 py-3 text-base border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all placeholder-gray-400" placeholder="Nhập tên của bạn..." />
               </div>
             )}
 
+            {/* Tài khoản đăng nhập: Học sinh dùng ID, Người lớn dùng Email */}
             {role === 'student' && mode === 'login' ? (
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">🆔 Mã Học Sinh (ID)</label>
@@ -149,10 +151,19 @@ export default function AuthPage() {
               </div>
             )}
 
+            {/* Mật khẩu: Ai cũng phải nhập */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">🔑 Mật khẩu bí mật</label>
               <input name="password_raw" type="password" className="w-full px-4 py-3 text-base border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all placeholder-gray-400" placeholder="••••••••" />
             </div>
+
+            {/* Nhập lại mật khẩu: CHỈ HIỆN KHI ĐĂNG KÝ */}
+            {mode === 'register' && (
+              <div className="animate-fade-in-down">
+                <label className="block text-sm font-bold text-gray-700 mb-2">✅ Nhập lại mật khẩu</label>
+                <input name="confirm_password_raw" type="password" className="w-full px-4 py-3 text-base border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all placeholder-gray-400" placeholder="Gõ lại y hệt bên trên nha..." />
+              </div>
+            )}
           </div>
 
           {/* HIỂN THỊ LỖI */}
