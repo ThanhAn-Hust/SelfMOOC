@@ -40,8 +40,6 @@ CREATE TABLE teacher (
 
 CREATE TABLE student (
     student_id   SERIAL PRIMARY KEY,
-    email        VARCHAR(128) UNIQUE,          -- dùng để login & nhận thông báo
-    phone        VARCHAR(20),
     name         VARCHAR(128) NOT NULL,
     password_hash TEXT NOT NULL,
     dob          DATE,
