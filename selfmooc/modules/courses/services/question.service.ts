@@ -1,5 +1,5 @@
 import { getCourseQuestionsDB, createQuestionDB, deleteQuestionDB } from '../models/question.model';
-import { ObjectId, GridFSBucket } from 'mongodb';
+import { ObjectId, GridFSBucket, Int32 } from 'mongodb';
 import { getMongoDb } from '@/lib/db';
 import { Readable } from 'stream';
 
@@ -50,7 +50,6 @@ export async function createQuestionService(teacherId: number, data: any, imageF
       const gridFsId = await uploadFileToMongoGridFS(buffer, `q-${Date.now()}`, imageFile.type);
       mediaArray.push({
         type: 'image',
-        file_id: gridFsId,
         url: `/api/files/${gridFsId}` // Link này để Frontend page.tsx của bạn hiển thị
       });
     }
@@ -59,13 +58,15 @@ export async function createQuestionService(teacherId: number, data: any, imageF
     const db = await getMongoDb();
     const contentToInsert: any = {
       _id: newMongoId,
-      pg_question_id: newPgQuestion.question_id,
+      pg_question_id: new Int32(newPgQuestion.question_id), // 👈 bọc Int32
       question_type: data.question_type,
       text: data.text,
-      media: mediaArray.length > 0 ? mediaArray : undefined, // 🎯 NHÉT MẢNG ẢNH VÀO ĐÂY
       created_at: new Date(),
       updated_at: new Date()
     };
+    if (mediaArray.length > 0) {
+        contentToInsert.media = mediaArray;
+    }
 
     // 2. Tùy loại câu hỏi mà nhét thêm dữ liệu đặc thù (Không nhét null bừa bãi)
     if (data.question_type === 'multiple_choice') {
@@ -81,6 +82,7 @@ export async function createQuestionService(teacherId: number, data: any, imageF
 
     return JSON.parse(JSON.stringify(newPgQuestion));
   } catch (error: any) {
+    console.error("📋 errInfo:", JSON.stringify(error?.errInfo, null, 2)); // 👈 THÊM DÒNG NÀY
     console.error("🔥 CHI TIẾT LỖI TỪ DATABASE:", error);
     throw new Error(error.message);
   }
