@@ -67,8 +67,17 @@ export async function getAnnouncementsAction(classId: number) {
   if (!token) return { success: false, data: [] };
 
   try {
-    const announcements = await getClassAnnouncementsService(classId);
-    return { success: true, data: announcements };
+    const rawAnnouncements = await getClassAnnouncementsService(classId);
+    
+    // Ép _id và Date thành String trước khi gửi xuống UI
+    const safeData = rawAnnouncements.map((ann: any) => ({
+      ...ann,
+      _id: ann._id.toString(), // Chuyển ObjectId thành Chuỗi chữ và số
+      created_at: ann.created_at ? new Date(ann.created_at).toISOString() : null,
+      updated_at: ann.updated_at ? new Date(ann.updated_at).toISOString() : null,
+    }));
+
+    return { success: true, data: safeData };
   } catch (error) {
     console.error(error);
     return { success: false, data: [], message: 'Không thể tải thông báo' };

@@ -9,7 +9,7 @@ export default function ClassAnnouncementPage({ classId }: { classId: number }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   
-  const [editingId, setEditingId] = useState<string | null>(null); 
+  const [editingId, setEditingId] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const loadAnnouncements = async () => {
@@ -22,23 +22,34 @@ export default function ClassAnnouncementPage({ classId }: { classId: number }) 
   useEffect(() => { loadAnnouncements(); }, [classId]);
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        setMessage('');
+    e.preventDefault();
+    setIsSubmitting(true);
+    setMessage('');
     
-        const formData = new FormData(e.currentTarget);
-        const payload = {
-        title: formData.get('title') as string,
-        body: formData.get('body') as string,
-        is_pinned: formData.get('is_pinned') === 'on'
+    const formData = new FormData(e.currentTarget);
+    const payload = {
+      title: formData.get('title') as string,
+      body: formData.get('body') as string,
+      is_pinned: formData.get('is_pinned') === 'on'
     };
 
-    const result = await createAnnouncementAction(classId, payload);
-    setMessage(result.message);
-    if (result.success) {
-      formRef.current?.reset();
-      loadAnnouncements();
+    let result;
+    if (editingId) {
+      // Đang có editingId -> Gọi API Cập nhật
+      result = await updateAnnouncementAction(editingId, payload);
+    } else {
+      // Không có editingId -> Gọi API Tạo mới
+      result = await createAnnouncementAction(classId, payload);
     }
+
+    setMessage(result.message);
+    
+    if (result.success) {
+      // 🎯 Thành công rồi thì gọi hàm Reset Form ngay lập tức
+      handleCancelEdit(); 
+      loadAnnouncements(); // Load lại danh sách bên phải
+    }
+    
     setIsSubmitting(false);
   };
 
@@ -59,21 +70,28 @@ export default function ClassAnnouncementPage({ classId }: { classId: number }) 
     }
   };
   const handleEditClick = (ann: any) => {
-    setEditingId(ann._id);
+    setEditingId(ann._id); // Lúc này ann._id đã là String xịn nhờ Bước 1
+    
     if (formRef.current) {
-      formRef.current.title.valueOf = ann.title;
+      formRef.current.title.value = ann.title;
       formRef.current.body.value = ann.body;
       formRef.current.is_pinned.checked = ann.is_pinned;
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // Cuộn lên đầu trang
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    formRef.current?.reset();
+    
+    // Cuộn lên đầu trang cho Giảng viên dễ nhìn
+    window.scrollTo({ top: 0, behavior: 'smooth' }); 
     setMessage('');
   };
 
+  const handleCancelEdit = () => {
+    setEditingId(null); // Tắt chế độ "Sửa"
+    if (formRef.current) {
+      formRef.current.reset(); // Xóa sạch chữ trong ô nhập
+    }
+    setMessage(''); // Xóa dòng thông báo xanh/đỏ
+  };
+
+  
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
@@ -104,7 +122,7 @@ export default function ClassAnnouncementPage({ classId }: { classId: number }) 
             <div className="flex gap-2">
               {editingId && (
                 <button type="button" onClick={handleCancelEdit} className="w-1/3 py-4 bg-slate-700 text-white font-bold rounded-xl hover:bg-slate-600">
-                  Hủy
+                  Hủy 
                 </button>
               )}
               <button type="submit" disabled={isSubmitting} className={`flex-1 py-4 text-white font-bold rounded-xl transition-colors disabled:opacity-50 ${editingId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-sky-500 hover:bg-sky-600'}`}>

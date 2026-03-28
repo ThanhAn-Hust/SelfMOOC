@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { getClassStudentsAction, addStudentToClassAction, removeStudentAction } from '@/modules/classes/controller/class.action';
 import ClassAnnouncementPage from './ClassAnnouncementPage'; 
 
+import { getCourseQuestionsAction } from '@/modules/courses/controller/question.action';
+import { createAssignmentAction, getClassAssignmentsAction, getCourseIdOfClassAction } from '@/modules/assignments/controller/assignment.action';
+
 export default function ClassDetailPage({ params }: { params: Promise<{ classId: string }> }) {
   const resolvedParams = use(params);
   const classId = parseInt(resolvedParams.classId);
@@ -12,6 +15,14 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
 
   const [activeTab, setActiveTab] = useState<'announcements' | 'students' | 'quizzes' | 'materials'>('students');
   
+  // States cho Tab Bài tập & Quiz
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+  const [courseQuestions, setCourseQuestions] = useState<any[]>([]);
+  const [selectedQIds, setSelectedQIds] = useState<number[]>([]);
+  const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
+
+
   // States cho Tab Học Sinh
   const [students, setStudents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,6 +68,58 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     }
   };
 
+
+  const loadClassData = async () => {
+    setIsLoading(true);
+    const [studentsRes, assignsRes] = await Promise.all([
+      getClassStudentsAction(classId),
+      getClassAssignmentsAction(classId)
+    ]);
+    if (studentsRes.success) setStudents(studentsRes.data);
+    if (assignsRes.success) setAssignments(assignsRes.data);
+    setIsLoading(false);
+  };
+
+  useEffect(() => { loadClassData(); }, [classId]);
+
+  // 4. HÀM MỞ MODAL & LOAD NGÂN HÀNG CÂU HỎI
+  const handleOpenQuizModal = async () => {
+    setIsQuizModalOpen(true);
+    setSelectedQIds([]); // Reset lựa chọn cũ
+    
+    // Tìm xem lớp này thuộc Khóa học nào
+    const courseRes = await getCourseIdOfClassAction(classId);
+    if (courseRes.success && courseRes.courseId) {
+      // Load câu hỏi từ Khóa học đó ra
+      const qRes = await getCourseQuestionsAction(courseRes.courseId);
+      if (qRes.success) setCourseQuestions(qRes.data);
+    }
+  };
+
+  // Nút tick chọn câu hỏi
+  const handleToggleQuestion = (qId: number) => {
+    setSelectedQIds(prev => prev.includes(qId) ? prev.filter(id => id !== qId) : [...prev, qId]);
+  };
+
+  // 5. HÀM SUBMIT TẠO BÀI TẬP
+  const handleCreateAssignment = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsSubmittingQuiz(true);
+    setMessage('');
+    
+    const formData = new FormData(e.currentTarget);
+    formData.append('class_id', classId.toString());
+
+    const res = await createAssignmentAction(formData, selectedQIds);
+    setMessage(res.message);
+    if (res.success) {
+      loadClassData();
+      setTimeout(() => setIsQuizModalOpen(false), 1500);
+    }
+    setIsSubmittingQuiz(false);
+  };
+
+  
   return (
     <div className="max-w-7xl mx-auto pb-10">
       {/* HEADER LỚP HỌC */}
@@ -144,19 +207,131 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
         </div>
       )}
 
-      {/* TAB 3: BÀI TẬP VÀ QUIZ (Giao diện chờ API) */}
+      {/* TAB 3: BÀI TẬP VÀ QUIZ */}
       {activeTab === 'quizzes' && (
         <div className="animate-fade-in">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-white flex items-center gap-2"><span>📝</span> Bài Tập Giao Cho Lớp</h2>
-            <button className="px-6 py-3 bg-amber-500 text-white font-bold rounded-2xl hover:bg-amber-600 transition-all shadow-[0_4px_0_rgb(217,119,6)] active:translate-y-[2px] active:shadow-none">
-              ➕ Soạn Bài Tập/Quiz
+            <button onClick={handleOpenQuizModal} className="px-6 py-3 bg-amber-500 text-white font-bold rounded-2xl hover:bg-amber-600 transition-all shadow-[0_4px_0_rgb(217,119,6)] active:translate-y-[2px] active:shadow-none">
+              ➕ Soạn Bài Tập Mới
             </button>
           </div>
-          <div className="bg-slate-800 rounded-3xl p-12 text-center border border-slate-700 border-dashed">
-            <span className="text-6xl mb-4 block">🎯</span>
-            <h3 className="text-xl font-bold text-slate-300 mb-2">Chưa có bài tập nào được giao</h3>
-            <p className="text-slate-500">Giáo viên có thể tạo câu hỏi mới hoặc lấy từ Ngân hàng đề của Khóa học.</p>
+
+          {assignments.length === 0 ? (
+            <div className="bg-slate-800 rounded-3xl p-12 text-center border border-slate-700 border-dashed">
+              <span className="text-6xl mb-4 block">🎯</span>
+              <h3 className="text-xl font-bold text-slate-300 mb-2">Chưa có bài tập nào được giao</h3>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {assignments.map((ass) => (
+                <div key={ass.assignment_id} className="bg-slate-800 rounded-3xl p-6 border border-slate-700 hover:border-amber-500/50 transition-colors group">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-xl flex items-center justify-center text-2xl font-bold">Q</div>
+                    <div>
+                      <h3 className="font-bold text-white text-lg line-clamp-1">{ass.title}</h3>
+                      <p className="text-xs font-medium text-slate-400">{ass.assignment_type.toUpperCase()}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm font-medium text-slate-300 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                    <p>🕒 Thời gian: <span className="text-amber-400">{ass.time_limit_min ? `${ass.time_limit_min} phút` : 'Không giới hạn'}</span></p>
+                    <p>📊 Số câu hỏi: <span className="text-emerald-400">{ass.question_count} câu</span></p>
+                    <p>📅 Hạn chót: <span className="text-rose-400">{ass.due_date ? new Date(ass.due_date).toLocaleDateString('vi-VN') : 'Không có'}</span></p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🚀 MODAL TẠO BÀI TẬP SIÊU TO KHỔNG LỒ */}
+      {isQuizModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-slate-800 rounded-3xl w-full max-w-6xl shadow-2xl border border-slate-700 flex flex-col max-h-[95vh] overflow-hidden">
+            <div className="p-6 bg-amber-500 text-white flex justify-between items-center shrink-0">
+              <h2 className="text-2xl font-bold flex items-center gap-2"><span>🎯</span> Thiết lập Bài tập / Đề thi</h2>
+              <button onClick={() => setIsQuizModalOpen(false)} className="text-white hover:rotate-90 transition-transform text-2xl">✖</button>
+            </div>
+            
+            <form onSubmit={handleCreateAssignment} className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+              {/* CỘT TRÁI: Cài đặt thông số */}
+              <div className="w-full lg:w-1/3 p-6 border-r border-slate-700 overflow-y-auto bg-slate-800/50">
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Tiêu đề bài tập *</label>
+                    <input name="title" required placeholder="VD: Kiểm tra 15 phút Chương 1" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl focus:outline-none focus:border-amber-500 text-white" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-300 mb-2">Loại bài</label>
+                      <select name="assignment_type" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white font-bold outline-none">
+                        <option value="homework">Bài tập về nhà</option>
+                        <option value="quiz">Quiz (Kiểm tra)</option>
+                        <option value="midterm">Thi Giữa kỳ</option>
+                        <option value="final">Thi Cuối kỳ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-300 mb-2">Thời gian làm (Phút)</label>
+                      <input name="time_limit_min" type="number" placeholder="Bỏ trống nếu ko giới hạn" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Hạn chót nộp bài</label>
+                    <input name="due_date" type="datetime-local" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Lời dặn dò</label>
+                    <textarea name="description" rows={3} placeholder="Chú ý làm bài cẩn thận nhé..." className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none resize-none"></textarea>
+                  </div>
+                  
+                  {message && <div className="p-3 bg-slate-900 rounded-xl text-sm font-bold text-center text-amber-400">{message}</div>}
+                  
+                  <button type="submit" disabled={isSubmittingQuiz} className="w-full py-4 mt-2 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-colors disabled:opacity-50">
+                    {isSubmittingQuiz ? '⏳ ĐANG LƯU...' : `🚀 GIAO BÀI (${selectedQIds.length} Câu hỏi)`}
+                  </button>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: Ngân hàng câu hỏi (Để tick chọn) */}
+              <div className="w-full lg:w-2/3 p-6 overflow-y-auto bg-slate-900 relative">
+                <div className="flex justify-between items-center mb-6 sticky top-0 bg-slate-900/90 backdrop-blur pb-2 z-10">
+                  <h3 className="text-xl font-bold text-white">Ngân hàng đề của Khóa học</h3>
+                  <span className="px-4 py-1.5 bg-amber-500/20 text-amber-400 font-bold rounded-full border border-amber-500/30">
+                    Đã chọn: {selectedQIds.length} câu
+                  </span>
+                </div>
+
+                {courseQuestions.length === 0 ? (
+                  <div className="text-center py-20 text-slate-400 font-bold border-2 border-dashed border-slate-700 rounded-3xl">
+                    Chưa có câu hỏi nào trong Khóa học này.<br/>Hãy sang mục Khóa Học để soạn đề trước nhé!
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {courseQuestions.map((q, idx) => (
+                      <label key={q.question_id} className={`flex items-start gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedQIds.includes(q.question_id) ? 'bg-amber-500/10 border-amber-500' : 'bg-slate-800 border-slate-700 hover:border-slate-500'}`}>
+                        <div className="pt-1">
+                          <input 
+                            type="checkbox" 
+                            className="w-6 h-6 accent-amber-500 cursor-pointer"
+                            checked={selectedQIds.includes(q.question_id)}
+                            onChange={() => handleToggleQuestion(q.question_id)}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex gap-2 mb-2">
+                            <span className="px-2 py-0.5 bg-slate-700 text-xs font-bold rounded text-slate-300">Chương {q.chapter || '?'}</span>
+                            <span className="px-2 py-0.5 bg-purple-500/20 text-xs font-bold rounded text-purple-400">Độ khó: {q.difficulty}</span>
+                          </div>
+                          <p className="font-bold text-white text-base leading-relaxed line-clamp-3">{q.content?.text || 'Nội dung câu hỏi...'}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </form>
           </div>
         </div>
       )}
