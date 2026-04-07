@@ -7,8 +7,9 @@ import { getClassMaterialsAction } from '@/modules/classes/controller/class.acti
 import ClassAnnouncementPage from './ClassAnnouncementPage'; 
 
 import { getCourseQuestionsAction } from '@/modules/courses/controller/question.action';
-import { createAssignmentAction, getClassAssignmentsAction, getCourseIdOfClassAction } from '@/modules/assignments/controller/assignment.action';
+import { createAssignmentAction, getClassAssignmentsAction, getCourseIdOfClassAction, updateAssignmentAction, getAssignmentSelectedQuestionsAction } from '@/modules/assignments/controller/assignment.action';
 import { saveBulkAttendanceAction, getAttendanceHistoryAction } from '@/modules/classes/controller/class.action';
+
 
 export default function TeacherClassDetailPage ({ params }: { params: Promise<{ classId: string }> }) {
   const resolvedParams = use(params);
@@ -36,10 +37,12 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
   
   // --- STATE CHO ĐIỂM DANH ---
   const [attendanceList, setAttendanceList] = useState<any[]>([]);
-  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]); // State mới cho Lịch sử
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]); // State cho Lịch sử
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
+
+  const [editingAssignment, setEditingAssignment] = useState<any>(null);
 
   const loadAttendanceData = async () => {
     setIsLoadingAttendance(true);
@@ -118,12 +121,11 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
   // 4. HÀM MỞ MODAL & LOAD NGÂN HÀNG CÂU HỎI
   const handleOpenQuizModal = async () => {
     setIsQuizModalOpen(true);
-    setSelectedQIds([]); // Reset lựa chọn cũ
+    setEditingAssignment(null); // Reset trạng thái sửa
+    setSelectedQIds([]); 
     
-    // Tìm xem lớp này thuộc Khóa học nào
     const courseRes = await getCourseIdOfClassAction(classId);
     if (courseRes.success && courseRes.courseId) {
-      // Load câu hỏi từ Khóa học đó ra
       const qRes = await getCourseQuestionsAction(courseRes.courseId);
       if (qRes.success) setCourseQuestions(qRes.data);
     }
@@ -134,25 +136,59 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
     setSelectedQIds(prev => prev.includes(qId) ? prev.filter(id => id !== qId) : [...prev, qId]);
   };
 
-  // 5. HÀM SUBMIT TẠO BÀI TẬP
-  const handleCreateAssignment = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  // 🎯 HÀM XỬ LÝ KHI BẤM NÚT LƯU/GIAO BÀI
+  const handleSubmitQuizForm = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // Chặn việc trình duyệt tự reload trang
     setIsSubmittingQuiz(true);
     setMessage('');
     
-    const formData = new FormData(e.currentTarget);
-    formData.append('class_id', classId.toString());
+    try {
+      const formData = new FormData(e.currentTarget);
+      formData.append('class_id', classId.toString());
 
-    const res = await createAssignmentAction(formData, selectedQIds);
-    setMessage(res.message);
-    if (res.success) {
-      loadClassData();
-      setTimeout(() => setIsQuizModalOpen(false), 1500);
+      let res;
+      if (editingAssignment) {
+        // ĐANG SỬA BÀI -> Gọi API Update
+        res = await updateAssignmentAction(editingAssignment.assignment_id, formData, selectedQIds);
+      } else {
+        // ĐANG TẠO MỚI -> Gọi API Create
+        res = await createAssignmentAction(formData, selectedQIds);
+      }
+
+      setMessage(res.message);
+      if (res.success) {
+        loadClassData(); // Load lại danh sách ngoài UI
+        setTimeout(() => {
+          setIsQuizModalOpen(false);
+          setEditingAssignment(null); // Reset lại trạng thái
+          setMessage('');
+        }, 1500);
+      }
+    } catch (error) {
+      setMessage('❌ Đã xảy ra lỗi hệ thống khi lưu!');
+      console.error(error);
+    } finally {
+      setIsSubmittingQuiz(false); // Mở khóa nút bấm
     }
-    setIsSubmittingQuiz(false);
   };
 
-  // HÀM 1: Click trên giao diện chỉ đổi State ảo (Chưa lưu DB)
+  const handleEditAssignment = async (ass: any) => {
+    setIsQuizModalOpen(true);
+    setEditingAssignment(ass); // Lưu lại dữ liệu bài tập vào state để fill vào input
+    
+    // 1. Load ngân hàng câu hỏi
+    const courseRes = await getCourseIdOfClassAction(classId);
+    if (courseRes.success && courseRes.courseId) {
+      const qRes = await getCourseQuestionsAction(courseRes.courseId);
+      if (qRes.success) setCourseQuestions(qRes.data);
+    }
+
+    // 2. Load các câu hỏi đã chọn từ DB để tick sẵn vào UI
+    const selectedRes = await getAssignmentSelectedQuestionsAction(ass.assignment_id);
+    if (selectedRes.success) setSelectedQIds(selectedRes.data);
+  };
+
+  // Click trên giao diện chỉ đổi State ảo (Chưa lưu DB)
   const handleToggleLocalAttendance = (studentId: number, currentStatus: string) => {
     setAttendanceList(prev => prev.map(item => 
       item.student_id === studentId 
@@ -291,8 +327,14 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {assignments.map((ass) => (
-                <div key={ass.assignment_id} className="bg-slate-800 rounded-3xl p-6 border border-slate-700 hover:border-amber-500/50 transition-colors group">
-                  <div className="flex items-center gap-4 mb-4">
+                <div key={ass.assignment_id} className="bg-slate-800 rounded-3xl p-6 border border-slate-700 hover:border-amber-500/50 transition-colors group relative">
+                  
+                  {/* Nút Sửa ẩn hiện khi Hover */}
+                  <button onClick={() => handleEditAssignment(ass)} className="absolute top-4 right-4 w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500 hover:text-white" title="Sửa bài tập">
+                    ✏️
+                  </button>
+
+                  <div className="flex items-center gap-4 mb-4 pr-10">
                     <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-xl flex items-center justify-center text-2xl font-bold">Q</div>
                     <div>
                       <h3 className="font-bold text-white text-lg line-clamp-1">{ass.title}</h3>
@@ -302,6 +344,8 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
                   <div className="space-y-2 text-sm font-medium text-slate-300 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
                     <p>🕒 Thời gian: <span className="text-amber-400">{ass.time_limit_min ? `${ass.time_limit_min} phút` : 'Không giới hạn'}</span></p>
                     <p>📊 Số câu hỏi: <span className="text-emerald-400">{ass.question_count} câu</span></p>
+                    {/* Hiển thị giới hạn số lần */}
+                    <p>🔄 Lần làm: <span className="text-sky-400">{ass.max_attempts ? `Tối đa ${ass.max_attempts} lần` : 'Vô hạn'}</span></p>
                     <p>📅 Hạn chót: <span className="text-rose-400">{ass.due_date ? new Date(ass.due_date).toLocaleDateString('vi-VN') : 'Không có'}</span></p>
                   </div>
                 </div>
@@ -311,27 +355,30 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
         </div>
       )}
 
-      {/* 🚀 MODAL TẠO BÀI TẬP SIÊU TO KHỔNG LỒ */}
+      {/* 🚀 MODAL TẠO & SỬA BÀI TẬP */}
       {isQuizModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-slate-800 rounded-3xl w-full max-w-6xl shadow-2xl border border-slate-700 flex flex-col max-h-[95vh] overflow-hidden">
             <div className="p-6 bg-amber-500 text-white flex justify-between items-center shrink-0">
-              <h2 className="text-2xl font-bold flex items-center gap-2"><span>🎯</span> Thiết lập Bài tập / Đề thi</h2>
-              <button onClick={() => setIsQuizModalOpen(false)} className="text-white hover:rotate-90 transition-transform text-2xl">✖</button>
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <span>🎯</span> {editingAssignment ? 'Chỉnh sửa Bài tập' : 'Thiết lập Bài tập / Đề thi'}
+              </h2>
+              <button onClick={() => { setIsQuizModalOpen(false); setEditingAssignment(null); setMessage(''); }} className="text-white hover:rotate-90 transition-transform text-2xl">✖</button>
             </div>
             
-            <form onSubmit={handleCreateAssignment} className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+            <form onSubmit={handleSubmitQuizForm} className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+              
               {/* CỘT TRÁI: Cài đặt thông số */}
               <div className="w-full lg:w-1/3 p-6 border-r border-slate-700 overflow-y-auto bg-slate-800/50">
                 <div className="space-y-5">
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">Tiêu đề bài tập *</label>
-                    <input name="title" required placeholder="VD: Kiểm tra 15 phút Chương 1" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl focus:outline-none focus:border-amber-500 text-white" />
+                    <input name="title" defaultValue={editingAssignment?.title} required placeholder="VD: Kiểm tra 15 phút Chương 1" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl focus:outline-none focus:border-amber-500 text-white" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">Loại bài</label>
-                      <select name="assignment_type" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white font-bold outline-none">
+                      <select name="assignment_type" defaultValue={editingAssignment?.assignment_type || 'homework'} className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white font-bold outline-none">
                         <option value="homework">Bài tập về nhà</option>
                         <option value="quiz">Quiz (Kiểm tra)</option>
                         <option value="midterm">Thi Giữa kỳ</option>
@@ -339,21 +386,37 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-slate-300 mb-2">Thời gian làm (Phút)</label>
-                      <input name="time_limit_min" type="number" placeholder="Bỏ trống nếu ko giới hạn" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none" />
+                      <label className="block text-sm font-bold text-slate-300 mb-2">Thời gian (Phút)</label>
+                      <input name="time_limit_min" defaultValue={editingAssignment?.time_limit_min} type="number" placeholder="Vô hạn" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none" />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-300 mb-2">Hạn chót nộp bài</label>
-                    <input name="due_date" type="datetime-local" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none" />
+                  
+                  {/* GIỚI HẠN SỐ LẦN & HẠN CHÓT */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-300 mb-2">Số lần làm tối đa</label>
+                      <input name="max_attempts" defaultValue={editingAssignment?.max_attempts} type="number" min="1" placeholder="Vô hạn" className="w-full px-4 py-3 bg-slate-900 border border-amber-500/50 focus:border-amber-500 rounded-xl text-white outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-300 mb-2">Hạn chót nộp bài</label>
+                      {/* Xử lý định dạng ngày giờ cho input type="datetime-local" */}
+                      <input name="due_date" defaultValue={editingAssignment?.due_date ? new Date(new Date(editingAssignment.due_date).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} type="datetime-local" className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none text-xs" />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">Lời dặn dò</label>
-                    <textarea name="description" rows={3} placeholder="Chú ý làm bài cẩn thận nhé..." className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none resize-none"></textarea>
+                    <textarea name="description" defaultValue={editingAssignment?.description} rows={3} placeholder="Chú ý làm bài cẩn thận nhé..." className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white outline-none resize-none"></textarea>
                   </div>
-                                    
+                  
+                  {message && (
+                    <div className={`p-3 rounded-xl text-sm font-bold text-center ${message.includes('✅') ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
+                      {message}
+                    </div>
+                  )}
+                  
                   <button type="submit" disabled={isSubmittingQuiz} className="w-full py-4 mt-2 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-colors disabled:opacity-50">
-                    {isSubmittingQuiz ? '⏳ ĐANG LƯU...' : `🚀 GIAO BÀI (${selectedQIds.length} Câu hỏi)`}
+                    {isSubmittingQuiz ? '⏳ ĐANG LƯU...' : (editingAssignment ? `💾 LƯU THAY ĐỔI (${selectedQIds.length} Câu)` : `🚀 GIAO BÀI (${selectedQIds.length} Câu)`)}
                   </button>
                 </div>
               </div>
@@ -373,7 +436,7 @@ export default function TeacherClassDetailPage ({ params }: { params: Promise<{ 
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {courseQuestions.map((q, idx) => (
+                    {courseQuestions.map((q) => (
                       <label key={q.question_id} className={`flex items-start gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedQIds.includes(q.question_id) ? 'bg-amber-500/10 border-amber-500' : 'bg-slate-800 border-slate-700 hover:border-slate-500'}`}>
                         <div className="pt-1">
                           <input 

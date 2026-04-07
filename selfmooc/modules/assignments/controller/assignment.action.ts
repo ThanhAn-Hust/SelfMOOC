@@ -56,6 +56,7 @@ export async function createAssignmentAction(formData: FormData, selectedQuestio
       assignment_type: formData.get('assignment_type') || 'quiz',
       due_date: dueDateStr ? new Date(dueDateStr) : null,
       time_limit_min: Number(formData.get('time_limit_min')) || null,
+      max_attempts: formData.get('max_attempts') ? Number(formData.get('max_attempts')) : null,
     };
 
     if (!payload.title) return { success: false, message: 'Vui lòng nhập tên bài tập!' };
@@ -96,7 +97,6 @@ export async function getAssignmentForStudentAction(assignmentId: number) {
     const db = await getMongoDb();
     const mongoQuestions = await db.collection('question_content').find({ _id: { $in: mongoIds } }).toArray();
 
-    // 4. 🎯 THUẬT TOÁN "CHE MẮT" (Xóa đáp án đúng trước khi gửi về cho Học sinh)
     const safeQuestions = pgQuestions.map(pgQ => {
       const content = mongoQuestions.find(m => m._id.toString() === pgQ.mongo_id);
       
@@ -127,10 +127,73 @@ export async function getAssignmentForStudentAction(assignmentId: number) {
       };
     }).filter(q => q !== null); // Lọc bỏ các câu bị null
 
-    return { success: true, data: { assignment, questions: safeQuestions } };    return { success: true, data: { assignment, questions: safeQuestions } };
+    return { success: true, data: { assignment, questions: safeQuestions } };   
   } catch (error) {
     console.error(error);
     return { success: false, message: 'Lỗi hệ thống khi tải đề thi' };
+  } finally {
+    client.release();
+  }
+}
+
+// LẤY DANH SÁCH ID CÂU HỎI ĐÃ ĐƯỢC CHỌN CỦA 1 BÀI TẬP 
+export async function getAssignmentSelectedQuestionsAction(assignmentId: number) {
+  const client = await pgPool.connect();
+  try {
+    const res = await client.query('SELECT question_id FROM assignment_question WHERE assignment_id = $1', [assignmentId]);
+    return { success: true, data: res.rows.map(r => r.question_id) };
+  } catch (error) {
+    return { success: false, data: [] };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateAssignmentAction(assignmentId: number, formData: FormData, selectedQuestionIds: number[]) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('session')?.value;
+  const user = token ? getUserFromToken(token) : null;
+  if (!user || user.role !== 'teacher') return { success: false, message: 'Không có quyền' };
+
+  if (selectedQuestionIds.length === 0) return { success: false, message: '⚠️ Vui lòng tick chọn ít nhất 1 câu hỏi!' };
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const dueDateStr = formData.get('due_date') as string;
+    const maxAttempts = formData.get('max_attempts') ? Number(formData.get('max_attempts')) : null;
+
+    // Cập nhật thông tin vỏ bài tập
+    await client.query(`
+      UPDATE assignment 
+      SET title = $1, description = $2, assignment_type = $3, time_limit_min = $4, due_date = $5, max_attempts = $6
+      WHERE assignment_id = $7 AND created_by = $8
+    `, [
+      formData.get('title'), formData.get('description'), formData.get('assignment_type'),
+      Number(formData.get('time_limit_min')) || null, dueDateStr ? new Date(dueDateStr) : null,
+      maxAttempts, assignmentId, user.id
+    ]);
+
+    // Xóa toàn bộ câu hỏi cũ của bài tập này
+    await client.query('DELETE FROM assignment_question WHERE assignment_id = $1', [assignmentId]);
+
+    // Insert lại danh sách câu hỏi mới
+    for (let i = 0; i < selectedQuestionIds.length; i++) {
+      await client.query(`
+        INSERT INTO assignment_question (assignment_id, question_id, points, display_order) 
+        VALUES ($1, $2, $3, $4)
+      `, [assignmentId, selectedQuestionIds[i], 1, i + 1]); // Mặc định mỗi câu 1 điểm
+    }
+
+    // Cập nhật lại tổng số câu hỏi
+    // await client.query('UPDATE assignment SET question_count = $1 WHERE assignment_id = $2', [selectedQuestionIds.length, assignmentId]);
+
+    await client.query('COMMIT');
+    return { success: true, message: '✅ Đã cập nhật bài tập thành công!' };
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    return { success: false, message: 'Lỗi cập nhật: ' + error.message };
   } finally {
     client.release();
   }
