@@ -19,8 +19,8 @@ export default function TakeAssignmentPage({ params }: { params: Promise<{ assig
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [resultData, setResultData] = useState<{grade: string, needsManualGrading: boolean} | null>(null);
-
+  const [resultData, setResultData] = useState<{correctCount: number, totalQuestions: number, needsManualGrading: boolean} | null>(null);
+  
   useEffect(() => {
     async function loadData() {
       const res = await getAssignmentForStudentAction(assignmentId);
@@ -66,11 +66,12 @@ export default function TakeAssignmentPage({ params }: { params: Promise<{ assig
     const res = await submitAssignmentAction(assignmentId, answers, timeSpentSec);
     
     if (res.success && res.data) { 
-      setResultData({
-        grade: res.data.grade,
-        needsManualGrading: res.data.needsManualGrading
-      });
-    } else {
+        setResultData({
+          correctCount: res.data.correctCount,
+          totalQuestions: res.data.totalQuestions,
+          needsManualGrading: res.data.needsManualGrading
+        });
+      } else {
       alert(res.message || 'Lỗi khi nộp bài');
     }
     setIsSubmitting(false);
@@ -85,16 +86,22 @@ export default function TakeAssignmentPage({ params }: { params: Promise<{ assig
           <div className="text-8xl mb-6 drop-shadow-lg">🎉</div>
           <h2 className="text-3xl font-black text-white mb-6">Nộp bài thành công!</h2>
           
-          {!resultData.needsManualGrading && (
+          {/* NẾU CÓ TỰ LUẬN -> Chỉ báo chờ chấm */}
+          {resultData.needsManualGrading ? (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-6 mb-8 text-amber-400 font-medium">
+              <span className="text-2xl block mb-2">✍️</span>
+              Bài thi của bạn có câu hỏi tự luận. Vui lòng chờ Thầy/Cô chấm bài để biết kết quả cuối cùng nhé!
+            </div>
+          ) : (
+            // NẾU CHỈ CÓ TRẮC NGHIỆM -> Hiện số câu đúng / Tổng câu
             <div className="bg-slate-900/50 border border-slate-700 rounded-3xl p-8 mb-8 shadow-inner">
-              <p className="text-slate-500 font-black uppercase tracking-widest mb-4 text-xs">ĐIỂM SỐ CỦA BẠN</p>
-              
+              <p className="text-slate-500 font-black uppercase tracking-widest mb-4 text-xs">SỐ CÂU TRẢ LỜI ĐÚNG</p>
               <div className="flex items-baseline justify-center font-black gap-1">
-                <span className="text-4xl text-sky-400 tracking-tight drop-shadow-md">
-                  {resultData.grade}
+                <span className="text-7xl text-sky-400 tracking-tight drop-shadow-md">
+                  {resultData.correctCount}
                 </span>
                 <span className="text-4xl text-sky-500/50">
-                  /10
+                  /{resultData.totalQuestions}
                 </span>
               </div>
             </div>
@@ -108,8 +115,8 @@ export default function TakeAssignmentPage({ params }: { params: Promise<{ assig
           </button>
         </div>
       </div>
-      );
-    }
+    );
+  }
 
   return (
     <div className="max-w-[1600px] mx-auto pb-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start px-4 lg:px-8">

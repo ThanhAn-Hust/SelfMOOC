@@ -39,12 +39,15 @@ export async function submitAssignmentAction(assignmentId: number, studentAnswer
     let totalScore = 0;
     let maxScore = 0;
     let needsManualGrading = false;
+    let correctCount = 0; // Thêm biến đếm số câu đúng
+    const totalQuestions = pgQuestions.length; // Tổng số câu
     const formattedAnswers = [];
 
     // 3. THUẬT TOÁN CHẤM ĐIỂM TỰ ĐỘNG
     for (const pgQ of pgQuestions) {
       const qContent = mongoQuestions.find(m => m._id.toString() === pgQ.mongo_id);
-      if (!qContent) continue;
+      if (!qContent) continue; 
+
       const studentAns = studentAnswers[pgQ.question_id];
       const points = parseFloat(pgQ.points);
       maxScore += points;
@@ -57,25 +60,26 @@ export async function submitAssignmentAction(assignmentId: number, studentAnswer
         if (studentAns === correctIndex) {
           isCorrect = true;
           pointsEarned = points;
+          correctCount++; // 🎯 Tăng biến đếm
         }
         formattedAnswers.push({ pg_question_id: pgQ.question_id, question_type: 'multiple_choice', selected_index: studentAns, is_correct: isCorrect, points_earned: pointsEarned, points_max: points, auto_graded: true });
-      
-      } else if (pgQ.question_type === 'true_false') {
+      } 
+      // ... (Tương tự cho True/False, nếu đúng thì correctCount++)
+      else if (pgQ.question_type === 'true_false') {
         if (studentAns === qContent.correct_answer) {
           isCorrect = true;
           pointsEarned = points;
+          correctCount++; // 🎯 Tăng biến đếm
         }
         formattedAnswers.push({ pg_question_id: pgQ.question_id, question_type: 'true_false', bool_answer: studentAns, is_correct: isCorrect, points_earned: pointsEarned, points_max: points, auto_graded: true });
-      
-      } else if (pgQ.question_type === 'essay') {
-        needsManualGrading = true; // Tự luận thì báo cờ chờ Giáo viên chấm
+      } 
+      else if (pgQ.question_type === 'essay') {
+        needsManualGrading = true;
         formattedAnswers.push({ pg_question_id: pgQ.question_id, question_type: 'essay', text_answer: studentAns, is_correct: false, points_earned: 0, points_max: points, auto_graded: false });
       }
-      
       totalScore += pointsEarned;
     }
 
-    // 4. Quy đổi sang thang điểm 10
     const grade = maxScore > 0 ? (totalScore / maxScore) * 10 : 0;
     const status = needsManualGrading ? 'submitted' : 'graded';
 
@@ -94,11 +98,71 @@ export async function submitAssignmentAction(assignmentId: number, studentAnswer
     return { 
       success: true, 
       message: '🎉 Nộp bài thành công!', 
-      data: { grade: grade.toFixed(2), needsManualGrading } 
+      data: { 
+        correctCount, 
+        totalQuestions, 
+        needsManualGrading 
+      } 
     };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: 'Lỗi hệ thống khi nộp bài' };
+    } finally {
+      client.release();
+    }
+}
+
+// LẤY NHẬT KÝ LÀM BÀI CỦA HỌC SINH
+export async function getMySubmissionsAction() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('session')?.value;
+  const user = token ? getUserFromToken(token) : null;
+  
+  if (!user || user.role !== 'student') return { success: false, data: [] };
+
+  const client = await pgPool.connect();
+  try {
+    const res = await client.query(`
+      SELECT s.submission_id, a.title, a.assignment_type, s.status, s.grade, s.score, s.max_score, s.submitted_at
+      FROM submission s
+      JOIN assignment a ON s.assignment_id = a.assignment_id
+      WHERE s.student_id = $1
+      ORDER BY s.submitted_at DESC
+    `, [user.id]);
+    
+    return { success: true, data: res.rows };
   } catch (error) {
     console.error(error);
-    return { success: false, message: 'Lỗi hệ thống khi nộp bài' };
+    return { success: false, data: [] };
+  } finally {
+    client.release();
+  }
+}
+
+// LẤY DANH SÁCH BÀI TẬP CHỜ CHẤM (CHO GIÁO VIÊN)
+export async function getPendingSubmissionsAction() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('session')?.value;
+  const user = token ? getUserFromToken(token) : null;
+  
+  if (!user || user.role !== 'teacher') return { success: false, data: [] };
+
+  const client = await pgPool.connect();
+  try {
+    const res = await client.query(`
+      SELECT s.submission_id, s.submitted_at, a.title AS assignment_title, 
+             st.name AS student_name, st.student_code
+      FROM submission s
+      JOIN assignment a ON s.assignment_id = a.assignment_id
+      JOIN student st ON s.student_id = st.student_id
+      WHERE a.created_by = $1 AND s.status = 'submitted'
+      ORDER BY s.submitted_at ASC
+    `, [user.id]);
+    
+    return { success: true, data: res.rows };
+  } catch (error) {
+    console.error(error);
+    return { success: false, data: [] };
   } finally {
     client.release();
   }
