@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getAnnouncementsAction } from '@/modules/announcements/controller/announcement.action';
 import { getClassAssignmentsAction } from '@/modules/assignments/controller/assignment.action';
 import { getClassMaterialsAction } from '@/modules/classes/controller/class.action';
+import ClassScheduleBadge from '@/app/components/ClassScheduleBadge';
 
 export default function StudentClassDetailPage({ classId }: { classId: number }) {
   const router = useRouter();
@@ -47,6 +48,9 @@ export default function StudentClassDetailPage({ classId }: { classId: number })
         <div>
           <h1 className="text-4xl font-black mb-2">Không Gian Lớp Học</h1>
           <p className="font-medium text-blue-100">Cùng xem hôm nay Thầy/Cô có dặn dò gì không nhé!</p>
+          <div className="bg-white/10 px-1 py-0.5 rounded-xl border border-white/20 w-fit">
+            <ClassScheduleBadge classId={classId} />
+          </div>
         </div>
       </div>
 
