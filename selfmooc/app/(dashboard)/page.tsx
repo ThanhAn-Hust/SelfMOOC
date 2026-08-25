@@ -5,8 +5,13 @@ import ParentDashboard from './components/ParentDashboard';
 
 function getUserFromToken(token: string) {
   try {
-    return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8'));
-  } catch (error) { return null; }
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length < 2 || !parts[1]) return null;
+    return JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+  } catch (error) {
+    return null;
+  }
 }
 
 export default async function DashboardPage() {
