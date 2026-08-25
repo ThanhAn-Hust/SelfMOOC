@@ -32,29 +32,21 @@ if (process.env.NODE_ENV !== 'production') {
 // ==========================================
 // 2. CẤU HÌNH KẾT NỐI MONGODB (ATLAS)
 // ==========================================
-const mongoUri = process.env.MONGODB_URI;
-
-if (!mongoUri) {
-  throw new Error('Thiếu MONGODB_URI trong file .env.local');
-}
-
 const globalForMongo = globalThis as unknown as { 
-  _mongoClientPromise: Promise<MongoClient> 
+  _mongoClientPromise?: Promise<MongoClient>;
 };
 
-let mongoClientPromise: Promise<MongoClient>;
+export async function getMongoClientPromise(): Promise<MongoClient> {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error('Thiếu MONGODB_URI trong biến môi trường (.env.local)');
+  }
 
-if (process.env.NODE_ENV === 'development') {
-  // Trong môi trường dev, sử dụng global variable để giữ connection
   if (!globalForMongo._mongoClientPromise) {
     const client = new MongoClient(mongoUri);
     globalForMongo._mongoClientPromise = client.connect();
   }
-  mongoClientPromise = globalForMongo._mongoClientPromise;
-} else {
-  // Trong môi trường production, khởi tạo connection mới (Serverless sẽ tự quản lý)
-  const client = new MongoClient(mongoUri);
-  mongoClientPromise = client.connect();
+  return globalForMongo._mongoClientPromise;
 }
 
 /**
@@ -62,7 +54,6 @@ if (process.env.NODE_ENV === 'development') {
  * Cách dùng ở file khác: const db = await getMongoDb();
  */
 export async function getMongoDb(): Promise<Db> {
-  const client = await mongoClientPromise;
-  // Thay 'lms_db' bằng tên database thực tế của bạn trên Atlas nếu khác
+  const client = await getMongoClientPromise();
   return client.db('lms_db'); 
 }

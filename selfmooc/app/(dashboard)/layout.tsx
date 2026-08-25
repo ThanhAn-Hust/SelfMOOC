@@ -6,8 +6,10 @@ import { SidebarProvider } from '../components/layout/SidebarContext';
 
 function getUserFromToken(token: string) {
   try {
-    const payload = token.split('.')[1];
-    const decoded = Buffer.from(payload, 'base64').toString('utf-8');
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length < 2 || !parts[1]) return null;
+    const decoded = Buffer.from(parts[1], 'base64').toString('utf-8');
     return JSON.parse(decoded);
   } catch (error) {
     return null; 
